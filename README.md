@@ -59,4 +59,4 @@ http://localhost:PORT/
 
 ---
 
-Credits to: [https://doc.rust-lang.org/stable/](The Rust Language Book)
+Credits to: [The Rust Programming Language Book](https://doc.rust-lang.org/stable/book/title-page.html)
