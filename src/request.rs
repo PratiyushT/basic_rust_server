@@ -1,19 +1,34 @@
 use crate::BASE_DIR;
+
 use std::fmt::{Display, Formatter};
-use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 
+/// Represents a parsed HTTP request line.
+///
+/// This struct stores only the essential components of an HTTP request:
+/// the request method, the requested URL path, and the HTTP version.
+/// It does not include headers or a request body.
 pub struct Request {
     url: String,
     method: String,
     version: String,
 }
 
+/// Errors that can occur while parsing or validating an incoming HTTP request.
+///
+/// # Variants
+/// - `EmptyRequest`: The connection contained no request line.
+/// - `InvalidLength`: The request line did not contain exactly three parts
+///   (`METHOD`, `PATH`, `VERSION`).
+/// - `Io`: An underlying I/O error occurred while reading from the stream.
+/// - `InvalidHeader`: The request line failed validation (unsupported method/version).
 #[derive(Debug, thiserror::Error)]
 pub enum RequestError {
+    #[error("Request was empty.")]
+    EmptyRequest,
     #[error("Invalid length in header.")]
     InvalidLength,
     #[error(transparent)]
@@ -23,28 +38,28 @@ pub enum RequestError {
 }
 
 impl Request {
-    /// Creates a [`Request`] by reading and validating the HTTP request line from a TCP stream.
+
+    /// Parses the HTTP request line from the given TCP stream and constructs a [`Request`].
     ///
-    /// # What it does
-    /// 1. Reads the first line of the incoming TCP stream (the HTTP request line).
-    /// 2. Splits that line into 3 whitespace-separated parts: `METHOD`, `URL`, `VERSION`.
-    /// 3. Validates that the request is exactly: `GET <path> HTTP/1.1`. (Nested path not supported yet)
+    /// Expects a request line in the form: `GET <path> HTTP/1.1`.
+    ///
+    /// # Note
+    /// - Only the first line of the request is parsed. Everything else is irrelevant.
     ///
     /// # Arguments
-    /// - `stream`: A reference to the client [`TcpStream`]. This function reads from the stream,
-    ///   but does not take ownership of it.
+    /// - `stream`: Reference to the client [`TcpStream`] to read from.
     ///
     /// # Returns
-    /// - `Ok(Request)`: If the request line exists and passes validation.
-    /// - `Err(RequestError::InvalidLength)`: If the request line does not have exactly 3 parts.
-    /// - `Err(RequestError::InvalidHeader)`: If the method is not `GET` or the version is not `HTTP/1.1`.
-    /// - `Err(RequestError::Io(_))`: If reading from the stream fails (I/O error).
-
+    /// - `Ok(Request)`: If the request line is present and valid.
+    /// - `Err(RequestError::EmptyRequest)`: If the connection contains no request line.
+    /// - `Err(RequestError::InvalidLength)`: If the request line does not have exactly three parts.
+    /// - `Err(RequestError::InvalidHeader)`: If the method or HTTP version is invalid.
+    /// - `Err(RequestError::Io(_))`: If an I/O error occurs while reading from the stream.
     pub fn new(stream: &TcpStream) -> Result<Self, RequestError> {
         let request_buf = BufReader::new(stream);
         let request = match request_buf.lines().next() {
             Some(value) => value?,
-            None => panic!("Request cannot be empty."),
+            None => return Err(RequestError::EmptyRequest),
         };
 
         let data: Vec<&str> = request
@@ -53,7 +68,7 @@ impl Request {
             .collect();
 
         if data.len() != 3 {
-            return (Err(RequestError::InvalidLength));
+            return Err(RequestError::InvalidLength);
         }
 
         if !(data[0] == "GET" && data[2] == "HTTP/1.1") {
@@ -67,27 +82,18 @@ impl Request {
         })
     }
 
-    /// Resolves the request URL to an on-disk `.html` file and checks whether it exists.
+    /// Resolves the current request URL to an HTML file path under [`BASE_DIR`] and checks if it exists.
     ///
-    /// # What it does
-    /// 1. Takes the request URL (example: `/about` or `/`).
-    /// 2. If the URL is `/`, it maps it to `index`.
-    /// 3. Prepends `BASE_DIR/` if `BASE_DIR` is not empty.
-    /// 4. Appends `.html` to form a filesystem path.
-    /// 5. Attempts to open the file to confirm it exists and is readable.
+    /// Maps `/` to `index.html`, strips the leading `/` from the Request's URL, prepends `BASE_DIR`
+    /// if present, and forces the `.html` extension.
+    ///
+    /// # Note:
+    /// - This function currently is not made for nested routes. Might work but is untested.
+    /// - Only works for `.html` files.
     ///
     /// # Returns
-    /// - `Some(String)`: The computed file path (example: `public/about.html`) if the file can be opened.
-    /// - `None`: If the file does not exist or cannot be opened. This can be used as a condition to open the 404 not found page.
-    ///
-    /// # Notes
-    /// - This currently uses `File::open` just to check existence. That means you will typically
-    ///   open the same file again later when serving it, which is inefficient. A more efficient
-    ///   approach is to compute the path here and check `Path::is_file()`, then open only once
-    ///   in the response-writing logic.
-    /// - This function does not sanitize the URL. Inputs like `/../secret` could potentially escape
-    ///   the base directory depending on how `BASE_DIR` is set. Consider blocking `..` and stripping
-    ///   query strings (`?x=1`) before building the path.
+    /// - `Some(`[`PathBuf`]`)` if the resolved path exists and is a file.
+    /// - `None` if the file does not exist. Can be used to show the
     pub fn path_exists(&self) -> Option<PathBuf> {
         let url = if self.url == "/" {
             "index"
@@ -112,6 +118,10 @@ impl Request {
 }
 
 impl Display for Request {
+
+    /// Formats the request as an HTTP request line: `<METHOD> <URL> <VERSION>`.
+    /// # Returns
+    /// - `Ok(())` if formatting succeeds, otherwise a formatting error.
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {} {}", self.method, self.url, self.version)
     }

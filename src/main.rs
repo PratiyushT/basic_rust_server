@@ -1,4 +1,4 @@
-use rust_server::{handle_connection};
+use rust_server::handle_connection;
 use std::net::TcpListener;
 
 /// The address constant that will be used in the program.
@@ -11,6 +11,6 @@ fn main() {
 
     for connection_attempt in connection_attempts {
         let mut connection = connection_attempt.unwrap();
-        let request = handle_connection(&mut connection).unwrap();
+        let _ = handle_connection(&mut connection).unwrap();
     }
 }
