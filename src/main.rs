@@ -1,8 +1,5 @@
-use rust_server::handle_connection;
+use rust_server::{ADDRESS, handle_connection};
 use std::net::TcpListener;
-
-/// The address constant that will be used in the program.
-static ADDRESS: &str = "127.0.0.1:7878";
 
 fn main() {
     let tcp_listener = TcpListener::bind(ADDRESS).unwrap();
