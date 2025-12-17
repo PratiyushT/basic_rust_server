@@ -1,7 +1,7 @@
 # Minimal HTTP Server in Rust
 
 A minimal, single-threaded HTTP/1.1 server written in Rust from first principles.
-This project is meant for my learning of the rust language maily file handling, string parsing, multi-threading and basic HTTP related stuff.
+This project is meant for my learning of the rust language mainly file handling, string parsing, multi-threading and basic HTTP related stuff.
 
 ---
 
