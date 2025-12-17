@@ -1,8 +1,7 @@
 use crate::BASE_DIR;
 
 use std::fmt::{Display, Formatter};
-use std::io;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 
@@ -38,7 +37,6 @@ pub enum RequestError {
 }
 
 impl Request {
-
     /// Parses the HTTP request line from the given TCP stream and constructs a [`Request`].
     ///
     /// Expects a request line in the form: `GET <path> HTTP/1.1`.
@@ -85,23 +83,32 @@ impl Request {
     /// Resolves the current request URL to an HTML file path under [`BASE_DIR`] and checks if it exists.
     ///
     /// Maps `/` to `index.html`, strips the leading `/` from the Request's URL, prepends `BASE_DIR`
-    /// if present, and forces the `.html` extension.
+    /// if present, and forces the `.html` extension. Similarly maps nested routes.
     ///
     /// # Note:
-    /// - This function currently is not made for nested routes. Might work but is untested.
+    /// - Basic nested route functionality.
+    /// - Strips any line after '?' or '#' in the URL.
     /// - Only works for `.html` files.
     ///
     /// # Returns
     /// - `Some(`[`PathBuf`]`)` if the resolved path exists and is a file.
     /// - `None` if the file does not exist. Can be used to show the
     pub fn path_exists(&self) -> Option<PathBuf> {
-        let url = if self.url == "/" {
-            "index"
+        let unparsed_url = if self.url.ends_with("/") {
+            if self.url.len() == 1 {
+                "index".to_string()
+            } else {
+                let mut url = self.url.clone();
+                url.push_str("index");
+                url
+            }
         } else {
-            self.url.as_str()
+            self.url.clone()
         };
+        let removed_queries = unparsed_url.split('?').next()?;
+        let removed_queries = removed_queries.split('#').next()?;
 
-        let url = url.trim_start_matches("/");
+        let url = removed_queries.trim_start_matches("/");
         let mut full_url = if BASE_DIR.is_empty() {
             PathBuf::from(url)
         } else {
@@ -118,7 +125,6 @@ impl Request {
 }
 
 impl Display for Request {
-
     /// Formats the request as an HTTP request line: `<METHOD> <URL> <VERSION>`.
     /// # Returns
     /// - `Ok(())` if formatting succeeds, otherwise a formatting error.

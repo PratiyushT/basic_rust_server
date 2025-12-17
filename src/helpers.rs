@@ -2,19 +2,13 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use crate::{Request, RequestError};
+use crate::{Request, RequestError, BASE_DIR};
 
-
-/// The address that the server will bind to.
-pub static ADDRESS: &str = "127.0.0.1:7878";
-
-///The base directory where the HTML files live.
-pub static BASE_DIR: &str = "pages";
 
 /// Parses an HTTP request from the given TCP stream and sends an HTTP response.
 ///
 /// If the requested HTML file exists, a `200 OK` response is sent with the file
-/// contents. Otherwise, a `404 NOT FOUND` response is sent using `{BASE_DIR}/error404.html`.
+/// contents. Otherwise, a `404 NOT FOUND` response is sent using `{`[`BASE_DIR`]`}/error404.html`.
 ///
 /// # Arguments
 /// - `tcp_stream`: Mutable reference to the client [`TcpStream`].
