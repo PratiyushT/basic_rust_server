@@ -55,20 +55,23 @@ impl Request {
     /// - `Err(RequestError::Io(_))`: If an I/O error occurs while reading from the stream.
     pub fn new(stream: &TcpStream) -> Result<Self, RequestError> {
         let request_buf = BufReader::new(stream);
+
+        /* If request is not empty, parse into string. */
         let request = match request_buf.lines().next() {
             Some(value) => value?,
             None => return Err(RequestError::EmptyRequest),
         };
 
+        /* Split the request in to a Vec<String> at whitespaces. */
         let data: Vec<&str> = request
             .split_ascii_whitespace()
             .map(|value| value.trim())
             .collect();
 
+        /* Validate Request */
         if data.len() != 3 {
             return Err(RequestError::InvalidLength);
         }
-
         if !(data[0] == "GET" && data[2] == "HTTP/1.1") {
             return Err(RequestError::InvalidHeader);
         }
@@ -83,7 +86,7 @@ impl Request {
     /// Resolves the current request URL to an HTML file path under [`BASE_DIR`] and checks if it exists.
     ///
     /// Maps `/` to `index.html`, strips the leading `/` from the Request's URL, prepends `BASE_DIR`
-    /// if present, and forces the `.html` extension. Similarly maps nested routes.
+    /// if present, and forces the `.html` extension. Similarly, maps nested routes.
     ///
     /// # Note:
     /// - Basic nested route functionality.
@@ -94,33 +97,38 @@ impl Request {
     /// - `Some(`[`PathBuf`]`)` if the resolved path exists and is a file.
     /// - `None` if the file does not exist. Can be used to show the
     pub fn path_exists(&self) -> Option<PathBuf> {
-        let unparsed_url = if self.url.ends_with("/") {
+        /* If the url contains '/' at the end, map it to 'index' */
+        let raw = self.url.clone();
+        let mapped_url = if self.url.ends_with("/") {
             if self.url.len() == 1 {
+                // The homepage
                 "index".to_string()
             } else {
-                let mut url = self.url.clone();
+                // Landing of the rested route.
+                let mut url = raw;
                 url.push_str("index");
                 url
             }
         } else {
-            self.url.clone()
+            // Any route or nested route.
+            raw
         };
-        let removed_queries = unparsed_url.split('?').next()?;
-        let removed_queries = removed_queries.split('#').next()?;
 
-        let url = removed_queries.trim_start_matches("/");
-        let mut full_url = if BASE_DIR.is_empty() {
+        /* Remove everything after '?' or '#' */
+        let normalized_url = mapped_url.split('?').next()?;
+        let normalized_url = normalized_url.split('#').next()?;
+
+        /* Requests may contain '/' at the start which messes with file handling. Remove them. */
+        let url = normalized_url.trim_start_matches("/");
+        let mut path = if BASE_DIR.is_empty() {
             PathBuf::from(url)
         } else {
             Path::new(BASE_DIR).join(url)
         };
-        full_url.set_extension("html");
+        path.set_extension("html");
 
-        if full_url.is_file() {
-            Some(full_url)
-        } else {
-            None
-        }
+        /* Check if the path is a file or not. */
+        if path.is_file() { Some(path) } else { None }
     }
 }
 
