@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 
 pub static BASE_DIR: &str = "pages";
 
@@ -18,11 +19,14 @@ pub fn handle_connection(tcp_stream: &mut TcpStream) -> Result<(), RequestError>
         file = File::open(url)?;
         status.push_str("200 Ok");
     } else {
-        let mut url = "error404.html".to_string();
-        if !BASE_DIR.is_empty() {
-            url = format!("{BASE_DIR}/{url}");
-        }
-        file = File::open(url)?;
+        let url = "error404";
+        let mut full_url = if (BASE_DIR.is_empty()) {
+            PathBuf::from(url)
+        } else {
+            Path::new(BASE_DIR).join(url)
+        };
+        full_url.set_extension("html");
+        file = File::open(full_url)?;
         status.push_str("404 NOT FOUND");
     }
     let mut buf_writer = BufWriter::new(tcp_stream);
