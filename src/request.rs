@@ -3,7 +3,7 @@ use crate::BASE_DIR;
 use std::fmt::{Display, Formatter};
 use std::io::{self, BufRead, BufReader};
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Represents a parsed HTTP request line.
 ///
@@ -24,6 +24,7 @@ pub struct Request {
 ///   (`METHOD`, `PATH`, `VERSION`).
 /// - `Io`: An underlying I/O error occurred while reading from the stream.
 /// - `InvalidHeader`: The request line failed validation (unsupported method/version).
+/// - `InvalidURL`: The URL is not valid.
 #[derive(Debug, thiserror::Error)]
 pub enum RequestError {
     #[error("Request was empty.")]
@@ -34,6 +35,8 @@ pub enum RequestError {
     Io(#[from] io::Error),
     #[error("The request is not a valid request")]
     InvalidHeader,
+    #[error("The url is not a valid url")]
+    InvalidURL,
 }
 
 impl Request {
@@ -83,52 +86,87 @@ impl Request {
         })
     }
 
-    /// Resolves the current request URL to an HTML file path under [`BASE_DIR`] and checks if it exists.
+    /// Resolves the request URL into a filesystem path under [`BASE_DIR`] and returns it only if it is safe and exists.
     ///
-    /// Maps `/` to `index.html`, strips the leading `/` from the Request's URL, prepends `BASE_DIR`
-    /// if present, and forces the `.html` extension. Similarly, maps nested routes.
+    /// Routing rules
+    /// - Routes are folder-based (directory routing).
+    /// - Every incoming path is treated as a route, not a direct file reference.
+    /// - The server always serves the `index.html` file inside that route directory.
+    ///   Examples:
+    ///   - `/` -> `index.html`
+    ///   - `/docs` -> `docs/index.html`
+    ///   - `/docs/` -> `docs/index.html`
+    ///   - `/about/value/something/` -> `about/value/something/index.html`
+    /// - Query strings (`?`) and fragments (`#`) are ignored for routing.
+    ///   Example: `/docs?x=1#top` routes the same as `/docs`.
     ///
-    /// # Note:
-    /// - Basic nested route functionality.
-    /// - Strips any line after '?' or '#' in the URL.
-    /// - Only works for `.html` files.
+    /// Security model
+    /// - The base directory is canonicalized first (absolute path, resolves symlinks).
+    /// - The candidate file path is then built under the canonical base directory and canonicalized.
+    /// - The canonical candidate must start with the canonical base (`starts_with`).
+    ///   This blocks both `..` directory traversal and symlink-based escapes.
     ///
-    /// # Returns
-    /// - `Some(`[`PathBuf`]`)` if the resolved path exists and is a file.
-    /// - `None` if the file does not exist. Can be used to show the
+    /// Returns
+    /// - `Some(PathBuf)` if the resolved file exists, is a regular file, and remains inside [`BASE_DIR`].
+    /// - `None` if the file does not exist or the resolved path is unsafe (outside the base directory).
+
     pub fn path_exists(&self) -> Option<PathBuf> {
-        /* If the url contains '/' at the end, map it to 'index' */
-        let raw = self.url.clone();
-        let mapped_url = if self.url.ends_with("/") {
-            if self.url.len() == 1 {
-                // The homepage
-                "index".to_string()
-            } else {
-                // Landing of the rested route.
-                let mut url = raw;
-                url.push_str("index");
-                url
+        println!("The request is: {}", &self);
+        let base_dir_relative = if BASE_DIR.is_empty() {
+            PathBuf::from(".")
+        } else {
+            PathBuf::from(BASE_DIR)
+        };
+
+        /* Canonicalize and verify the relative path given by user in the program. */
+        let base_dir_canonical = match base_dir_relative.canonicalize() {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("BASE_DIR cannot be canonicalized: {error}");
+                return None;
             }
-        } else {
-            // Any route or nested route.
-            raw
         };
 
-        /* Remove everything after '?' or '#' */
-        let normalized_url = mapped_url.split('?').next()?;
-        let normalized_url = normalized_url.split('#').next()?;
+        /* Join and canonicalize the normalized url with the base dir */
+        /* This helps prevent both .. traversal and symlink escapes*/
+        let normalized_relative = Self::normalize_path_string(self.url.as_str())?;
+        let path_canonical = base_dir_canonical
+            .join(normalized_relative)
+            .canonicalize()
+            .ok()?;
 
-        /* Requests may contain '/' at the start which messes with file handling. Remove them. */
-        let url = normalized_url.trim_start_matches("/");
-        let mut path = if BASE_DIR.is_empty() {
-            PathBuf::from(url)
-        } else {
-            Path::new(BASE_DIR).join(url)
-        };
-        path.set_extension("html");
+        /* Check if the new path stays inside base directory.*/
+        if !path_canonical.starts_with(base_dir_canonical) {
+            return None;
+        }
 
         /* Check if the path is a file or not. */
-        if path.is_file() { Some(path) } else { None }
+        if path_canonical.is_file() {
+            Some(path_canonical)
+        } else {
+            None
+        }
+    }
+
+    /// This function is a private helper function for [`Self::path_exists`].
+    /// - It normalizes the string by removing anything after `?` or `#`.
+    /// - Leading or trailing "/" are ignored.
+    fn normalize_path_string(raw: &str) -> Option<PathBuf> {
+        let query_stripped = raw.splitn(2, '?').next().unwrap();
+        let fragment_stripped = query_stripped.splitn(2, '#').next().unwrap();
+
+        /* Get the OS specific path from the string */
+        let mut normalized_path_string = PathBuf::new();
+        for element in fragment_stripped.split('/') {
+            if element.is_empty() {
+                continue;
+            }
+            normalized_path_string.push(element)
+        }
+        normalized_path_string.push("index");
+        normalized_path_string.set_extension("html");
+
+        Some(normalized_path_string)
     }
 }
 
